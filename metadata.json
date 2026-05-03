@@ -1,0 +1,6 @@
+{
+  "name": "AI Agent Arena: Axiom Battles",
+  "description": "Heuristics are Axiom Battles. A training platform for NRN Agents.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["AI Agents", "Reinforcement Learning"]
+}
