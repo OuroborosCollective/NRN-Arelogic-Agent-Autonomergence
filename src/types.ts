@@ -1,5 +1,14 @@
 export type Rarity = 'Common' | 'Magic' | 'Rare' | 'Unique';
 
+export interface BlockchainTx {
+  txId: string;
+  from: string;
+  to: string;
+  amount: number;
+  memo: string;
+  timestamp: number;
+}
+
 export interface Item {
   id: string;
   name: string;
@@ -9,6 +18,8 @@ export interface Item {
     speedBoost?: number;
     damageBoost?: number;
   };
+  type?: 'weapon' | 'consumable' | 'data';
+  price?: number;
 }
 
 export interface Alliance {
@@ -33,11 +44,24 @@ export interface Entity {
   traits: string[];
   credits: number;
   reputation: number;
+  walletAddress: string;
+  nrnBalance: number;
   bonds: Record<string, number>;
   allianceId: string | null;
   rivalId: string | null;
   inventory: Item[];
   status: 'active' | 'terminated';
+  memory?: {
+    allies: string[];
+    threats: string[];
+    pointsOfInterest: { id: string; type: string; x: number; y: number }[];
+  };
+  needs?: {
+    survival: number;
+    social: number;
+    power: number;
+    knowledge: number;
+  };
 }
 
 export interface Structure {
@@ -75,4 +99,7 @@ export interface GameState {
   totalDead: number;
   worldSize: number;
   dungeonLayers: number;
+  nrnLedger: BlockchainTx[];
+  baseAgentCount: number;
+  dogKillTimestamps: number[];
 }

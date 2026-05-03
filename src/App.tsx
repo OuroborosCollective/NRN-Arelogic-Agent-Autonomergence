@@ -16,6 +16,7 @@ import {
   Database,
   FlaskConical
 } from 'lucide-react';
+import Map3D from './components/Map3D';
 import { AgentFactory, Registry } from './lib/nrn-factory';
 import { stateSpace } from './helpers/nrn-integration/nrn-state-space';
 import { actionSpace } from './helpers/nrn-integration/nrn-action-space';
@@ -25,6 +26,9 @@ import { io } from 'socket.io-client';
 const socket = io();
 
 export default function App() {
+  const [leftPanelOpen, setLeftPanelOpen] = useState(false);
+  const [rightPanelOpen, setRightPanelOpen] = useState(false);
+
   const [activeTab, setActiveTab] = useState<'arena' | 'training' | 'registry'>('arena');
   const [activeLayer, setActiveLayer] = useState<number>(0);
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -128,10 +132,17 @@ export default function App() {
         </div>
       </header>
 
-      <main className="p-6 grid grid-cols-12 gap-6 h-[calc(100vh-80px)] overflow-hidden">
+      <main className="p-4 flex gap-4 h-[calc(100vh-80px)] overflow-hidden">
         {/* Left Sidebar - Agent Specs */}
-        <aside className="col-span-3 border-r border-[#222222] pr-6 flex flex-col gap-6">
-          <section>
+        <AnimatePresence>
+          {leftPanelOpen && (
+            <motion.aside 
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: 320, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              className="border-r border-[#222222] pr-4 flex flex-col gap-6 overflow-y-auto overflow-x-hidden custom-scrollbar shrink-0"
+            >
+              <section>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-[11px] uppercase tracking-widest opacity-50 italic serif">Active Architecture</h2>
               <Settings className="w-3 h-3 opacity-30" />
@@ -230,26 +241,51 @@ export default function App() {
             </div>
           </section>
 
-          {(Object.values(gameState.guildAlliances || {}).some(a => a.length > 0) || Object.values(gameState.guildRivalries || {}).some(r => r.length > 0)) && (
+          {(Object.values(gameState.guildAlliances || {}).some((a: any) => a.length > 0) || Object.values(gameState.guildRivalries || {}).some((r: any) => r.length > 0)) && (
             <section className="space-y-4">
               <h3 className="text-[10px] uppercase tracking-widest opacity-40">Guild Diplomacy</h3>
               <div className="space-y-2">
-                {Object.entries(gameState.guildAlliances || {}).map(([guild, allies]) => 
-                  allies.filter(a => guild < a).map(ally => (
+                {Object.entries(gameState.guildAlliances || {}).map(([guild, allies]: [string, any]) => 
+                  allies.filter((a: any) => guild < a).map((ally: any) => (
                     <div key={`allies-${guild}-${ally}`} className="text-[9px] py-1 px-2 border border-[#222] bg-[#111] rounded-sm text-cyan-400">
                       <span className="opacity-50 text-[#fff]">ALLIANCE: </span>
                       {guild} ↔ {ally}
                     </div>
                   ))
                 )}
-                {Object.entries(gameState.guildRivalries || {}).map(([guild, rivals]) => 
-                  rivals.filter(r => guild < r).map(rival => (
+                {Object.entries(gameState.guildRivalries || {}).map(([guild, rivals]: [string, any]) => 
+                  rivals.filter((r: any) => guild < r).map((rival: any) => (
                     <div key={`rivals-${guild}-${rival}`} className="text-[9px] py-1 px-2 border border-[#222] bg-[#111] rounded-sm text-red-500">
                       <span className="opacity-50 text-[#fff]">WAR: </span>
                       {guild} ⚔️ {rival}
                     </div>
                   ))
                 )}
+              </div>
+            </section>
+          )}
+
+          {gameState.nrnLedger && gameState.nrnLedger.length > 0 && (
+            <section className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-[10px] uppercase tracking-widest opacity-40">Neuron Chain Ledger</h3>
+                <span className="text-[8px] border border-purple-500/30 text-purple-400 bg-purple-500/10 px-1 rounded">$NRN</span>
+              </div>
+              <div className="space-y-2 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
+                {gameState.nrnLedger.slice(0, 10).map(tx => (
+                  <div key={tx.txId} className="text-[9px] py-1.5 px-2 border border-[#222] rounded-sm bg-[#111]">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-gray-500 font-mono text-[8px]">{tx.txId}</span>
+                      <span className="text-purple-400 font-mono font-bold">+{tx.amount} NRN</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[7px] text-gray-500 font-mono">
+                      <span>{tx.from.substring(0,6)}...</span>
+                      <span>→</span>
+                      <span>{tx.to.substring(0,6)}...</span>
+                    </div>
+                    <p className="text-[8px] text-gray-400 mt-1 opacity-80">{tx.memo}</p>
+                  </div>
+                ))}
               </div>
             </section>
           )}
@@ -282,10 +318,27 @@ export default function App() {
               </div>
             </div>
           </section>
-        </aside>
+            </motion.aside>
+          )}
+        </AnimatePresence>
 
         {/* Center Section - Conditional Rendering */}
-        <section className="col-span-6 relative bg-[#141414] border border-[#222222] rounded-sm overflow-hidden flex flex-col">
+        <section className="flex-1 relative bg-[#141414] border border-[#222222] rounded-sm flex flex-col min-w-0">
+          {/* Panel Toggles */}
+          <button 
+            onClick={() => setLeftPanelOpen(!leftPanelOpen)}
+            className="absolute top-4 left-4 z-50 bg-black/60 border border-[#333] p-1.5 rounded-sm hover:bg-[#222] transition-colors"
+          >
+            <ChevronRight className={`w-4 h-4 text-white/70 transition-transform ${leftPanelOpen ? 'rotate-180' : ''}`} />
+          </button>
+          
+          <button 
+            onClick={() => setRightPanelOpen(!rightPanelOpen)}
+            className="absolute top-4 right-4 z-50 bg-black/60 border border-[#333] p-1.5 rounded-sm hover:bg-[#222] transition-colors"
+          >
+            <ChevronRight className={`w-4 h-4 text-white/70 transition-transform ${rightPanelOpen ? '' : 'rotate-180'}`} />
+          </button>
+
           <AnimatePresence mode="wait">
             {activeTab === 'arena' ? (
               <motion.div 
@@ -293,9 +346,9 @@ export default function App() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="flex-1 flex flex-col"
+                className="flex-1 flex flex-col pt-12"
               >
-                <div className="absolute top-4 right-4 flex gap-2 z-10 font-mono text-[10px]">
+                <div className="absolute top-4 right-14 flex gap-2 z-10 font-mono text-[10px]">
                   <div className="bg-black/60 px-1 py-1 border border-[#333] rounded-sm flex items-center">
                     {Array.from({ length: gameState.dungeonLayers + 1 }).map((_, i) => (
                       <button
@@ -319,178 +372,12 @@ export default function App() {
                 <div className="absolute inset-0 opacity-[0.03] pointer-events-none" 
                      style={{ backgroundImage: 'radial-gradient(#E4E3E0 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
 
-                <div className="flex-1 relative overflow-hidden flex items-center justify-center p-8">
-                  <div className="relative w-full aspect-square max-w-[500px] border border-[#222] bg-[#0F0F0F]">
-                     {/* Static Grid */}
-                     <div className="absolute inset-0 opacity-[0.02]" style={{ backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: '50px 50px' }} />
-
-                     {/* Social Links (Bonds) */}
-                     <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
-                       {gameState.entities.filter(e => e.layer === activeLayer).map(e => {
-                         if (e.status === 'terminated' || e.role === 'dog') return null;
-                         return Object.entries(e.bonds).map(([allyId, level]) => {
-                           if ((level as number) > -50 && (level as number) < 50) return null;
-                           const ally = gameState.entities.find(a => a.id === allyId && a.layer === activeLayer);
-                           if (!ally || ally.status === 'terminated') return null;
-                           // Only draw once (avoid duplicate lines)
-                           if (e.id < ally.id) {
-                             const isAlliance = e.allianceId && e.allianceId === ally.allianceId;
-                             const isRival = e.rivalId === ally.id || ally.rivalId === e.id || (level as number) < -50;
-                             let strokeColor = "rgba(255,255,255,0.05)";
-                             if (isAlliance) strokeColor = "rgba(0,255,255,0.2)";
-                             else if (isRival) strokeColor = "rgba(255,0,0,0.2)";
-                             
-                             return (
-                               <line 
-                                 key={`${e.id}-${ally.id}`}
-                                 x1={`${getScreenPos(e.x)}%`} 
-                                 y1={`${getScreenPos(e.y)}%`} 
-                                 x2={`${getScreenPos(ally.x)}%`} 
-                                 y2={`${getScreenPos(ally.y)}%`} 
-                                 stroke={strokeColor}
-                                 strokeWidth={isAlliance || isRival ? "1.5" : "1"} 
-                               />
-                             );
-                           }
-                           return null;
-                         });
-                       })}
-                     </svg>
-
-                     {/* Structures (Buildings) */}
-                     {gameState.structures.filter(s => s.layer === activeLayer).map(struct => (
-                       <div 
-                        key={struct.id}
-                        className={`absolute flex items-center justify-center border ${struct.type === 'lab' ? 'border-blue-500 bg-blue-500/10 w-8 h-8' : 'border-white/20 bg-white/5 w-6 h-6'}`}
-                        style={{ left: `${getScreenPos(struct.x)}%`, top: `${getScreenPos(struct.y)}%`, transform: 'translate(-50%, -50%)' }}
-                       >
-                         {struct.type === 'lab' ? (
-                           <FlaskConical className="w-4 h-4 text-blue-400" />
-                         ) : (
-                           <Database className="w-3 h-3 opacity-20" />
-                         )}
-                         {struct.ownerId && (
-                           <div className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-yellow-500 border border-black shadow-[0_0_5px_rgba(234,179,8,0.5)]" />
-                         )}
-                       </div>
-                     ))}
-
-                     {/* Entities Swarm */}
-                     {gameState.entities.filter(en => en.layer === activeLayer).map((en) => {
-                       if (en.status === 'terminated') return null;
-                       
-                       const isDog = en.role === 'dog';
-                       const guildColor = en.guildId === 'Emerald Covenant' ? 'border-green-500' : 
-                                         en.guildId === 'Crimson Nexus' ? 'border-red-500' : 
-                                         en.guildId === 'Azure Void' ? 'border-blue-500' : 'border-[#E4E3E0]';
-                       
-                       let bgOverride = '';
-                       if (activeLayer > 0) {
-                         bgOverride = activeLayer % 2 === 1 ? 'bg-purple-900/40' : 'bg-red-900/40';
-                       }
-                       
-                        return (
-                         <motion.div
-                            key={en.id}
-                            className={`absolute flex flex-col items-center justify-center group`}
-                            style={{ left: `${getScreenPos(en.x)}%`, top: `${getScreenPos(en.y)}%`, transform: 'translate(-50%, -50%)', zIndex: en.isLord ? 40 : (isDog ? 30 : 20) }}
-                          >
-                            {isDog ? (
-                              <Zap className="w-4 h-4 text-red-500 fill-red-500/20" />
-                            ) : (
-                              <div className="relative flex flex-col items-center">
-                                {en.isLord && (
-                                  <motion.div 
-                                    className="absolute -top-4 text-yellow-500"
-                                    animate={{ y: [0, -2, 0] }}
-                                    transition={{ repeat: Infinity, duration: 2 }}
-                                  >
-                                    <Crown className="w-3 h-3" />
-                                  </motion.div>
-                                )}
-                                <div className={`w-2.5 h-2.5 rounded-full border ${guildColor} bg-black ring-offset-2 ${en.isLord ? 'ring-2 ring-yellow-500/50' : ''} ${bgOverride}`} />
-                                
-                                {/* Info Panel on Hover */}
-                                <div className="absolute top-0 left-1/2 -translate-x-1/2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-[100] w-32">
-                                  <div className="bg-black/90 border border-white/10 p-2 rounded-sm backdrop-blur-md translate-y-[-100%] mt-[-8px]">
-                                    <p className="text-[8px] font-bold text-blue-400 mb-1">{en.id}</p>
-
-                                    {en.allianceId && (
-                                      <div className="mb-2">
-                                        <p className="text-[6px] uppercase opacity-40">Syndicate</p>
-                                        <p className="text-[7px] text-cyan-400 font-bold">{gameState.alliances.find(a => a.id === en.allianceId)?.name}</p>
-                                      </div>
-                                    )}
-
-                                    {en.rivalId && (
-                                      <div className="mb-2">
-                                        <p className="text-[6px] uppercase opacity-40">Rival</p>
-                                        <p className="text-[7px] text-red-500 font-bold">{en.rivalId}</p>
-                                      </div>
-                                    )}
-                                    
-                                    {en.traits.length > 0 && (
-                                      <div className="mb-2">
-                                        <p className="text-[6px] uppercase opacity-40">Traits</p>
-                                        <div className="flex flex-wrap gap-1">
-                                          {en.traits.map((t, i) => (
-                                            <span key={i} className="text-[6px] text-green-400">#{t}</span>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    )}
-
-                                    <div className="mb-1">
-                                      <p className="text-[6px] uppercase opacity-40">Reputation</p>
-                                      <p className={`text-[7px] font-bold ${en.reputation > 0 ? 'text-green-400' : en.reputation < 0 ? 'text-red-400' : 'text-gray-400'}`}>
-                                        {en.reputation > 0 ? '+' : ''}{en.reputation}
-                                      </p>
-                                    </div>
-
-                                    {en.inventory.length > 0 && (
-                                      <div>
-                                        <p className="text-[6px] uppercase opacity-40">Loot</p>
-                                        <div className="space-y-0.5">
-                                          {en.inventory.slice(0, 3).map((item, i) => (
-                                            <p key={i} className={`text-[6px] truncate ${
-                                              item.rarity === 'Unique' ? 'text-yellow-500' :
-                                              item.rarity === 'Rare' ? 'text-purple-500' :
-                                              item.rarity === 'Magic' ? 'text-blue-400' : 'text-gray-400'
-                                            }`}>
-                                              {item.name}
-                                            </p>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-
-                                {Math.random() < 0.01 && (
-                                  <div className="absolute top-[-20px] bg-black/80 border border-white/10 px-2 py-0.5 rounded-full whitespace-nowrap z-50">
-                                    <p className="text-[8px] tracking-tighter opacity-70 italic font-serif">"{en.thought}"</p>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                         </motion.div>
-                       );
-                     })}
-
-                     {/* Objective */}
-                     <motion.div
-                        className="absolute w-3 h-3 bg-white/10 border border-white/20 rotate-45 flex items-center justify-center"
-                        style={{ left: `${getScreenPos(gameState.objective.x)}%`, top: `${getScreenPos(gameState.objective.y)}%`, transform: 'translate(-50%, -50%) rotate(45deg)' }}
-                        animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.6, 0.3] }}
-                        transition={{ repeat: Infinity, duration: 3 }}
-                      >
-                        <Crosshair className="w-2 h-2 text-white/50" />
-                      </motion.div>
-
-                      <div className="absolute bottom-2 left-2 flex flex-col gap-1 text-[8px] font-mono opacity-50 z-10 pointer-events-none">
-                        <span>AXIOM GRID: {gameState.worldSize.toFixed(0)}x{gameState.worldSize.toFixed(0)}</span>
-                        <span>LAYER: {activeLayer === 0 ? 'SURFACE' : activeLayer}</span>
-                      </div>
+                <div className="flex-1 relative overflow-hidden p-0 m-0 cursor-grab active:cursor-grabbing">
+                  <Map3D gameState={gameState} activeLayer={activeLayer} />
+                  
+                  <div className="absolute top-2 left-2 flex flex-col gap-1 text-[8px] font-mono opacity-50 z-10 pointer-events-none text-white">
+                    <span>AXIOM GRID: {gameState.worldSize.toFixed(0)}x{gameState.worldSize.toFixed(0)}</span>
+                    <span>LAYER: {activeLayer === 0 ? 'SURFACE' : activeLayer}</span>
                   </div>
                 </div>
 
@@ -649,12 +536,46 @@ export default function App() {
                             <span className="text-[10px] text-blue-400 font-mono">{entity.credits}</span>
                           </div>
                           <div className="space-y-1">
+                            <p className="text-[9px] uppercase opacity-40 tracking-tight">$NRN Balance</p>
+                            <span className="text-[10px] text-purple-400 font-mono">{entity.nrnBalance}</span>
+                          </div>
+                          <div className="space-y-1">
                             <p className="text-[9px] uppercase opacity-40 tracking-tight">Reputation</p>
                             <span className={`text-[10px] font-bold font-mono ${entity.reputation > 0 ? 'text-green-400' : entity.reputation < 0 ? 'text-red-400' : 'text-gray-400'}`}>
                               {entity.reputation > 0 ? '+' : ''}{entity.reputation}
                             </span>
                           </div>
+                          <div className="space-y-1">
+                            <p className="text-[9px] uppercase opacity-40 tracking-tight">Wallet</p>
+                            <span className="text-[8px] text-gray-500 font-mono truncate block" title={entity.walletAddress}>
+                              {entity.walletAddress?.substring(0, 6)}...{entity.walletAddress?.substring(entity.walletAddress.length - 4)}
+                            </span>
+                          </div>
                         </div>
+
+                        {entity.needs && (
+                          <div className="space-y-2 mt-2 pt-2 border-t border-[#222]">
+                            <p className="text-[9px] uppercase opacity-40 tracking-tight">Core Needs</p>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                               <div>
+                                 <div className="flex justify-between text-[7px] mb-1"><span className="opacity-60">Survival</span><span className="font-mono">{Math.floor(entity.needs.survival)}%</span></div>
+                                 <div className="h-1 bg-[#222] rounded-full overflow-hidden"><div className="h-full bg-red-400" style={{ width: `${entity.needs.survival}%` }}/></div>
+                               </div>
+                               <div>
+                                 <div className="flex justify-between text-[7px] mb-1"><span className="opacity-60">Social</span><span className="font-mono">{Math.floor(entity.needs.social)}%</span></div>
+                                 <div className="h-1 bg-[#222] rounded-full overflow-hidden"><div className="h-full bg-blue-400" style={{ width: `${entity.needs.social}%` }}/></div>
+                               </div>
+                               <div>
+                                 <div className="flex justify-between text-[7px] mb-1"><span className="opacity-60">Power</span><span className="font-mono">{Math.floor(entity.needs.power)}%</span></div>
+                                 <div className="h-1 bg-[#222] rounded-full overflow-hidden"><div className="h-full bg-yellow-400" style={{ width: `${entity.needs.power}%` }}/></div>
+                               </div>
+                               <div>
+                                 <div className="flex justify-between text-[7px] mb-1"><span className="opacity-60">Knowledge</span><span className="font-mono">{Math.floor(entity.needs.knowledge)}%</span></div>
+                                 <div className="h-1 bg-[#222] rounded-full overflow-hidden"><div className="h-full bg-purple-400" style={{ width: `${entity.needs.knowledge}%` }}/></div>
+                               </div>
+                            </div>
+                          </div>
+                        )}
 
                         <div className="space-y-1">
                           <p className="text-[9px] uppercase opacity-40 tracking-tight">DNA Traits</p>
@@ -677,8 +598,16 @@ export default function App() {
                                 item.rarity === 'Magic' ? 'border-blue-500 bg-blue-500/10 text-blue-500' :
                                 'border-gray-500 bg-gray-500/10 text-gray-400 opacity-60'
                               }`}>
-                                <span>{item.name}</span>
-                                <span className="opacity-50 tracking-[0.2em]">{item.rarity}</span>
+                                <div className="truncate pr-2 max-w-[65%]">
+                                  <span className="font-bold opacity-70 mr-1 text-[7px] border border-current rounded-[2px] px-0.5">{item.type === 'weapon' ? 'WPN' : 'DAT'}</span>
+                                  {item.name}
+                                </div>
+                                <div className="flex flex-col items-end shrink-0">
+                                  <span className="opacity-50 tracking-[0.2em]">{item.rarity}</span>
+                                  {item.price && (
+                                    <span className="text-[7px] text-purple-400 font-bold">{item.price} NRN</span>
+                                  )}
+                                </div>
                               </div>
                             )) : <span className="text-[8px] opacity-20 italic font-mono">NO ARTIFACTS</span>}
                           </div>
@@ -703,8 +632,15 @@ export default function App() {
         </section>
 
         {/* Right Sidebar - Logic Configuration */}
-        <aside className="col-span-3 border-l border-[#222222] pl-6 flex flex-col gap-6">
-          <section>
+        <AnimatePresence>
+          {rightPanelOpen && (
+            <motion.aside 
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: 320, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              className="border-l border-[#222222] pl-4 flex flex-col gap-6 overflow-y-auto overflow-x-hidden custom-scrollbar shrink-0"
+            >
+              <section>
             <h2 className="text-[11px] uppercase tracking-widest opacity-50 italic serif mb-4">Space Integration</h2>
             <div className="space-y-4">
               <div className="group">
@@ -770,7 +706,9 @@ export default function App() {
                 <Plus className="w-4 h-4 opacity-40 group-hover:opacity-100" />
              </button>
           </section>
-        </aside>
+            </motion.aside>
+          )}
+        </AnimatePresence>
 
       </main>
 

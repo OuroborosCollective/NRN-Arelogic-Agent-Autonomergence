@@ -3,9 +3,10 @@ import type { Entity, GameState, Point, Structure, Item, Rarity } from '../types
 const GUILDS = ['Emerald Covenant', 'Crimson Nexus', 'Azure Void'];
 
 export const generateItem = (rarity?: Rarity): Item => {
+  const isWeapon = Math.random() > 0.5;
   const prefixes = ['Great', 'Shadow', 'Burning', 'Crystalline', 'Ancient'];
   const suffixes = ['of the Swarm', 'of Power', 'of the Void', 'of Agility'];
-  const bases = ['Neural Link', 'Fiber Mesh', 'Energy Core', 'Data Fragment'];
+  const bases = isWeapon ? ['Plasma Cannon', 'Laser Rifle', 'Shock Baton', 'Thermal Blade'] : ['Neural Link', 'Fiber Mesh', 'Energy Core', 'Data Fragment'];
   
   const finalRarity: Rarity = rarity || (Math.random() < 0.05 ? 'Unique' : Math.random() < 0.15 ? 'Rare' : Math.random() < 0.4 ? 'Magic' : 'Common');
   
@@ -13,21 +14,26 @@ export const generateItem = (rarity?: Rarity): Item => {
   if (finalRarity === 'Magic') name = `${prefixes[Math.floor(Math.random() * prefixes.length)]} ${name}`;
   else if (finalRarity === 'Rare') name = `${prefixes[Math.floor(Math.random() * prefixes.length)]} ${name} ${suffixes[Math.floor(Math.random() * suffixes.length)]}`;
   else if (finalRarity === 'Unique') {
-    name = ['The Axiom Core', 'Ghost of the Machine', 'Unity Protocol', 'Sentinel Bane'][Math.floor(Math.random() * 4)];
+    name = isWeapon ? ['The Sun Eater', 'Oblivion Ray', 'Doombringer', 'Void Edge'][Math.floor(Math.random() * 4)] : ['The Axiom Core', 'Ghost of the Machine', 'Unity Protocol', 'Sentinel Bane'][Math.floor(Math.random() * 4)];
   }
 
+  const basePrice = finalRarity === 'Unique' ? 500 : finalRarity === 'Rare' ? 200 : finalRarity === 'Magic' ? 50 : 10;
+  
   return {
     id: `item-${Math.random().toString(36).substr(2, 9)}`,
     name,
     rarity: finalRarity,
+    type: isWeapon ? 'weapon' : 'data',
+    price: basePrice + Math.floor(Math.random() * basePrice * 0.5),
     stats: {
-      healthBoost: finalRarity === 'Unique' ? 50 : finalRarity === 'Rare' ? 20 : 0,
+      healthBoost: finalRarity === 'Unique' && !isWeapon ? 50 : finalRarity === 'Rare' && !isWeapon ? 20 : 0,
+      damageBoost: finalRarity === 'Unique' && isWeapon ? 25 : finalRarity === 'Rare' && isWeapon ? 10 : 0,
       speedBoost: finalRarity === 'Magic' ? 0.1 : 0
     }
   };
 };
 
-export let globalDocLogBuffer: string[] = [];
+export const globalDocLogBuffer: string[] = [];
 
 export const initGameState = (): GameState => {
   const agents: Entity[] = Array.from({ length: 33 }, (_, i) => ({
@@ -46,6 +52,8 @@ export const initGameState = (): GameState => {
     traits: [],
     credits: 10,
     reputation: 0,
+    walletAddress: `0x${Date.now().toString(16)}${Math.random().toString(16).substring(2, 10)}`,
+    nrnBalance: 100,
     bonds: {},
     allianceId: null,
     rivalId: null,
@@ -69,6 +77,8 @@ export const initGameState = (): GameState => {
     traits: [],
     credits: 0,
     reputation: 0,
+    walletAddress: `0x${Date.now().toString(16)}${Math.random().toString(16).substring(2, 10)}`,
+    nrnBalance: 0,
     bonds: {},
     allianceId: null,
     rivalId: null,
@@ -96,7 +106,10 @@ export const initGameState = (): GameState => {
     totalBorn: 33,
     totalDead: 0,
     worldSize: 100,
-    dungeonLayers: 0
+    dungeonLayers: 0,
+    nrnLedger: [],
+    baseAgentCount: 33,
+    dogKillTimestamps: []
   };
 };
 
@@ -154,6 +167,8 @@ export function updateGameSimulation(state: GameState): GameState {
                 traits: [],
                 credits: 10,
                 reputation: 0,
+                walletAddress: `0x${Date.now().toString(16)}${Math.random().toString(16).substring(2, 10)}`,
+                nrnBalance: 100,
                 bonds: {},
                 allianceId: null,
                 rivalId: null,
@@ -350,9 +365,41 @@ export function updateGameSimulation(state: GameState): GameState {
                }
             }
         }
+      } else if (obj.action === 'trade_item') {
+        const { targetId, itemId, price } = obj.data;
+        const target = prevState.entities.find(e => e.id === targetId);
+        if (target && target.status === 'active' && target.layer === entity.layer) {
+            const itemIndex = entity.inventory.findIndex(i => i.id === itemId);
+            if (itemIndex > -1 && target.nrnBalance >= price) {
+                const item = entity.inventory[itemIndex];
+                // execute trade
+                target.nrnBalance -= price;
+                entity.nrnBalance += price;
+                entity.inventory.splice(itemIndex, 1);
+                target.inventory.push(item);
+                
+                // create ledger entry
+                prevState.nrnLedger.unshift({
+                    txId: `tx-${Date.now()}-${Math.floor(Math.random()*1000)}`,
+                    from: target.walletAddress,
+                    to: entity.walletAddress,
+                    amount: price,
+                    memo: `Trade: ${item.name}`,
+                    timestamp: Date.now()
+                });
+                
+                addGlobalLog(`NRN NETWORK: ${entity.id} sold [${item.name}] to ${target.id} for ${price} $NRN`);
+                entity.reputation += 1;
+                target.reputation += 1;
+            }
+        }
       }
     });
   });
+
+  const now = Date.now();
+  const ONE_HOUR = 3600000;
+  const recentDogKills = (prevState.dogKillTimestamps || []).filter(t => now - t < ONE_HOUR);
 
   // Combat collision & Movement
   const resolvedEntities = entities.map(e => {
@@ -362,13 +409,19 @@ export function updateGameSimulation(state: GameState): GameState {
       if (killer) {
         const isTough = e.traits.includes('Reinforced Shell');
         const damage = isTough ? 4 : 10;
-        const newHealth = Math.max(0, e.health - damage);
+        let newHealth = e.health - damage;
         
         if (newHealth <= 0) {
-          addGlobalLog(`CRITICAL: ${killer.id} neutralized ${e.id}.`);
-          newDead += 1;
-          return { ...e, health: 0, status: 'terminated' as const };
+          if (recentDogKills.length < 4) {
+             recentDogKills.push(now);
+             addGlobalLog(`CRITICAL: ${killer.id} neutralized ${e.id}.`);
+             newDead += 1;
+             return { ...e, health: 0, status: 'terminated' as const };
+          } else {
+             newHealth = 1; // Cap at 1 if watchdog is on cooldown
+          }
         }
+        
         if (Math.random() < 0.1) {
           addGlobalLog(`Strike: ${killer.id} hit ${e.id}. Damage: ${damage}. Integrity: ${newHealth}%`);
         }
@@ -380,6 +433,40 @@ export function updateGameSimulation(state: GameState): GameState {
     return { ...e, x: Math.max(minX, Math.min(maxX, e.x)), y: Math.max(minX, Math.min(maxX, e.y)) };
   });
 
+  let finalBaseAgentCount = prevState.baseAgentCount || 33;
+  const activeAgents = resolvedEntities.filter(e => e.status !== 'terminated' && e.role !== 'dog');
+  if (activeAgents.length === 0) {
+    const newBaseCount = finalBaseAgentCount + 10;
+    addGlobalLog(`MASS EXTINCTION DETECTED. REBIRTHING ${newBaseCount} NEW AGENTS.`);
+    const rebornAgents: typeof resolvedEntities = Array.from({ length: newBaseCount }, (_, i) => ({
+      id: `unit-rb-${prevState.tickCount}-${i}`,
+      x: 50 + (Math.random() - 0.5) * newWorldSize * 0.8,
+      y: 50 + (Math.random() - 0.5) * newWorldSize * 0.8,
+      layer: 0,
+      role: Math.random() > 0.5 ? 'builder' : 'explorer',
+      guildId: Math.random() > 0.3 ? GUILDS[Math.floor(Math.random() * GUILDS.length)] : null,
+      thought: 'Reborn heuristic...',
+      energy: 100,
+      health: 100,
+      votes: 0,
+      isLord: false,
+      dnaPoints: 0,
+      traits: [],
+      credits: 10,
+      reputation: 0,
+      walletAddress: `0x${Date.now().toString(16)}${Math.random().toString(16).substring(2, 10)}`,
+      nrnBalance: 100,
+      bonds: {},
+      allianceId: null,
+      rivalId: null,
+      inventory: [],
+      status: 'active'
+    }));
+    resolvedEntities.push(...rebornAgents);
+    newBorn += newBaseCount;
+    finalBaseAgentCount = newBaseCount;
+  }
+
   return {
     ...prevState,
     entities: resolvedEntities,
@@ -389,160 +476,12 @@ export function updateGameSimulation(state: GameState): GameState {
     totalBorn: newBorn,
     totalDead: newDead,
     worldSize: newWorldSize,
-    dungeonLayers: newDungeonLayers
+    dungeonLayers: newDungeonLayers,
+    baseAgentCount: finalBaseAgentCount,
+    dogKillTimestamps: recentDogKills
   };
 }
 
-// 1. Core Processor (processNPCAgent)
-function processNPCAgent(entity: Entity, state: GameState, dispatch: (obj: any) => void): Entity {
-  const e = { ...entity };
+import { processNPCAgent } from './agent-logic.js';
 
-  updatePerception(e, state);
-  updateDrives(e);
-  evaluateUtilityAndAffect(e, state, dispatch);
-  updateSocialAndCivilization(e, state, dispatch);
-  determineAndExecuteAction(e, state, dispatch);
-
-  return e;
-}
-
-function updatePerception(e: Entity, state: GameState) {
-  // Perception updates inside entity (e.g., finding nearest ally, enemy)
-}
-
-function updateDrives(e: Entity) {
-  // Energy decay
-  if(e.role !== 'dog') {
-      const isRegen = e.traits.includes('Photosynthetic Core');
-      e.energy -= 0.005;
-      if (isRegen && Math.random() < 0.01) e.health = Math.min(100, e.health + 1);
-  }
-}
-
-function evaluateUtilityAndAffect(e: Entity, state: GameState, dispatch: (obj: any) => void) {
-  // Spontaneous thought / affect
-  if (e.role !== 'dog' && Math.random() < 0.05) {
-      const allyCount = Object.values(e.bonds).filter((b: number) => b > 50).length;
-      const thoughts = [
-         `Bonded with ${allyCount} units.`,
-         'Calculating utility...',
-         'Nexus protocols aligned.',
-         'Trading energy for stability.'
-      ];
-      e.thought = thoughts[Math.floor(Math.random() * thoughts.length)];
-  }
-}
-
-function updateSocialAndCivilization(e: Entity, state: GameState, dispatch: (obj: any) => void) {
-  if (e.role === 'dog') return;
-
-  const neighbors = state.entities.filter(other => 
-      other.id !== e.id && 
-      other.status === 'active' && 
-      other.role !== 'dog' &&
-      Math.hypot(other.x - e.x, other.y - e.y) < 10
-  );
-
-  neighbors.forEach(n => {
-      const currentBond = e.bonds[n.id] || 0;
-      const sameGuild = e.guildId === n.guildId && e.guildId !== null;
-      const sameAlliance = e.allianceId === n.allianceId && e.allianceId !== null;
-      const isRival = e.rivalId === n.id || n.rivalId === e.id;
-      
-      const guildAllied = e.guildId && n.guildId && state.guildAlliances[e.guildId]?.includes(n.guildId);
-      const guildRivals = e.guildId && n.guildId && state.guildRivalries[e.guildId]?.includes(n.guildId);
-
-      // Bond Formation/Decay
-      let bondChange = 0;
-      if (sameGuild || guildAllied) bondChange += 1;
-      else if (guildRivals) bondChange -= 1.5;
-      else if (e.guildId && n.guildId && e.guildId !== n.guildId) bondChange -= 0.5;
-      else bondChange += 0.5;
-      
-      if (sameAlliance) bondChange += 2; // Strong bond increase with alliance members
-      if (isRival) bondChange -= 3; // Rapid decline if rivals
-      
-      e.bonds[n.id] = Math.max(-100, Math.min(100, currentBond + bondChange));
-
-      // Combat logic for rivals
-      if (isRival && Math.random() < 0.05) {
-          dispatch({ action: 'assassinate', data: n.id });
-      }
-      
-      // Resource Sharing (Altruism)
-      if ((currentBond > 50 || sameAlliance) && e.credits > 20 && n.credits < 10) {
-          e.credits -= 5;
-          e.reputation += 1;
-          // Note: we can't cleanly update `n` here as we operate on `e` copy, 
-          // but for server logic, we might dispatch an event.
-          if (Math.random() < 0.1) e.thought = "Shared credits with Ally.";
-      }
-
-      // Trait Effect: Data Leech
-      if (e.traits.includes('Data Leech') && currentBond < 0 && Math.random() < 0.05) {
-          e.credits += 2; // Steals credits
-          e.reputation -= 1;
-          if (Math.random() < 0.2) e.thought = "Leeched resources from rival.";
-      }
-
-      // Conflict: Assassination / Coup
-      if (currentBond < -80 && n.id === state.lordId && Math.random() < 0.01) {
-          dispatch({ action: 'assassinate', data: n.id });
-      }
-  });
-}
-
-function determineAndExecuteAction(e: Entity, state: GameState, dispatch: (obj: any) => void) {
-  if (e.role === 'dog') {
-      const targets = state.entities.filter(t => t.layer === e.layer && t.role !== 'dog' && t.status === 'active');
-      if (targets.length > 0) {
-          let nearest = targets[0];
-          let minDist = Infinity;
-          targets.forEach(t => {
-              const d = Math.hypot(t.x - e.x, t.y - e.y);
-              if (d < minDist) { minDist = d; nearest = t; }
-          });
-          const angle = Math.atan2(nearest.y - e.y, nearest.x - e.x);
-          e.x += Math.cos(angle) * 0.6;
-          e.y += Math.sin(angle) * 0.6;
-      }
-      return;
-  }
-
-  // Regular NPC Movement
-  const isSwift = e.traits.includes('Swift Reflexes');
-  const isOverclocked = e.traits.includes('Neural Overclock');
-  const speed = isSwift ? 0.7 : 0.4;
-  
-  if (isOverclocked && Math.random() < 0.05) {
-      e.energy -= 0.01; // burns energy faster
-      e.thought = "Overclocked processing...";
-  }
-  
-  // Decide target: Objective or explore
-  const target = state.objective;
-  const angle = Math.atan2(target.y - e.y, target.x - e.x);
-  
-  e.x += Math.cos(angle) * speed + (Math.random() - 0.5) * 0.1;
-  e.y += Math.sin(angle) * speed + (Math.random() - 0.5) * 0.1;
-
-  // Builder Logic
-  if (e.role === 'builder' && Math.random() < 0.001) {
-      const nearbyBuilders = state.entities.filter(other => 
-          other.id !== e.id && 
-          other.role === 'builder' && 
-          Math.hypot(other.x - e.x, other.y - e.y) < 5
-      ).length;
-
-      if (nearbyBuilders > 2) {
-          dispatch({ action: 'build_node', data: {
-              id: `node-${Date.now()}`, x: e.x, y: e.y, type: 'node', integrity: 100, ownerId: null, laws: []
-          } });
-      }
-  }
-
-  // Explorer Loot
-  if (e.role === 'explorer' && Math.random() < 0.005) {
-      dispatch({ action: 'loot', data: generateItem() });
-  }
-}
+export { processNPCAgent };
